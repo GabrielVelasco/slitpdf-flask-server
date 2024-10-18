@@ -5,7 +5,7 @@ from werkzeug.utils import secure_filename
 import io
 import os
 
-application = Flask(__name__) # create the flask app instance
+application = Flask(__name__) # create the flask app instance (instance name must be 'application' for deploying to beanstalk)
 
 CORS(application)
 

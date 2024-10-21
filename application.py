@@ -1,17 +1,15 @@
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, after_this_request
 from flask_cors import CORS
 from PyPDF2 import PdfReader, PdfWriter
 from werkzeug.utils import secure_filename
+import shutil
 import io
 import os
+import uuid
 
 application = Flask(__name__) # create the flask app instance (instance name must be 'application' for deploying to beanstalk)
 
 CORS(application)
-
-# set the upload folder 
-application.config['UPLOAD_FOLDER'] = 'uploads' # set the upload folder in the app config, so that we can access it later
-application.config['OUTPUT_FOLDER'] = 'output'
 
 def get_page_sizes(pdf_reader):
     page_sizes = []
@@ -26,22 +24,17 @@ def get_page_sizes(pdf_reader):
 
     return page_sizes
 
-def _split_pdf(file_path, part_size_mb):
+def _split_pdf(file_path, part_size_mb, output_dir):
     """Split a PDF file into parts of a given size. 
-    Save parts in the 'output' folder.
+    Save parts in the 'output_folder'.
     """
 
-    # Create output folder if it doesn't exist
-    output_folder = application.config['OUTPUT_FOLDER']
-    os.makedirs(output_folder, exist_ok=True)
-
-    # Open the PDF file
+    # create a PdfReader object
     pdf_reader = PdfReader(file_path)
     total_pages = len(pdf_reader.pages)
     total_pages_sum_after = 0
 
-    # Get page sizes
-    page_sizes = get_page_sizes(pdf_reader)
+    page_sizes = get_page_sizes(pdf_reader) # get the size of each page in the pdf
 
     part_size_bytes = part_size_mb * 1024 * 1024  # Convert MB to bytes
     current_part = 1
@@ -57,10 +50,10 @@ def _split_pdf(file_path, part_size_mb):
         accumulated_size += page_size
 
         if accumulated_size >= part_size_bytes:
-            # Save the current part
-            base_filename = os.path.splitext(os.path.basename(file_path))[0]
+            # save current part
+            base_filename = os.path.splitext(os.path.basename(file_path))[0] # get the file name without the extension (.pdf)
             output_filename = f"{base_filename}_part_{current_part}.pdf"
-            output_path = os.path.join(output_folder, output_filename)
+            output_path = os.path.join(output_dir, output_filename) # path to save the split pdf file (output/unique_id/filename_part_X.pdf)
 
             part_length = len(current_writer.pages)
 
@@ -81,11 +74,11 @@ def _split_pdf(file_path, part_size_mb):
         else:
             current_writer.add_page(page)
 
-    # Save the last part if it's not empty
+    # save last part...
     if len(current_writer.pages) > 0:
-        base_filename = os.path.splitext(os.path.basename(file_path))[0]
+        base_filename = os.path.splitext(os.path.basename(file_path))[0] # file name without the extension
         output_filename = f"{base_filename}_part_{current_part}.pdf"
-        output_path = os.path.join(output_folder, output_filename)
+        output_path = os.path.join(output_dir, output_filename)
 
         part_length = len(current_writer.pages)
 
@@ -123,31 +116,53 @@ def split_pdf():
         return jsonify({'message': 'max_size must be an integer'}), 400
     
     # save uploaded file to a folder on the server
-    os.makedirs(application.config['UPLOAD_FOLDER'], exist_ok=True)
-    file_name = secure_filename(pdf_file.filename) # secure the file name so that it's a safe file name (no malicious code)
-    file_path = os.path.join(application.config['UPLOAD_FOLDER'], file_name) # using os.path.join to join the folder and the file name (cross-platform)
+    # os.makedirs(application.config['UPLOAD_FOLDER'], exist_ok=True)
+    # file_name = secure_filename(pdf_file.filename) # secure the file name so that it's a safe file name (no malicious code)
+    # file_path = os.path.join(application.config['UPLOAD_FOLDER'], file_name) # using os.path.join to join the folder and the file name (cross-platform)
     
-    pdf_file.save(file_path) # save the file to the server, at 'uploads/file_name.pdf'
+    # save the file to the server on a temporary folder (prevent race condition)
+    unique_id = str(uuid.uuid4())
+    upload_dir = os.path.join('', unique_id + '_upload') # folder to keep the uploaded pdf file
+    output_dir = os.path.join('', unique_id) # folder to keep the split pdf files
+
+    os.makedirs(upload_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    file_path_on_server = os.path.join(upload_dir, secure_filename(pdf_file.filename))
+    pdf_file.save(file_path_on_server) # save the file to the server, at 'unique_id/file_name.pdf'
 
     # help(pdf_file) // used to see the methods and props available on the file object
 
     # split the pdf file
-    if _split_pdf(file_path, max_size):
-        # zip the output folder and send it to the client
-        zip_file_name = application.config['OUTPUT_FOLDER'] + '.zip' # name of the zip file
-        folder_to_zip = application.config['OUTPUT_FOLDER']  # folder to zip
-        
-        # zip the 'folder_to_zip' and save it as 'zip_file_name'. 
-        # run zip command according to the OS
-        if os.name == 'nt':
-            os.system(f"tar -a -c -f {zip_file_name} {folder_to_zip}") # windows
-        else:
-            os.system(f"zip -r {zip_file_name} {folder_to_zip}") # linux/mac
+    try:
+        if _split_pdf(file_path_on_server, max_size, output_dir):
+            # zip the output folder and send it to the client
+            zip_file_name = unique_id + '_pdfs.zip' # name of the zip file to be downloaded
+            
+            # zip the 'folder_to_zip' and save it as 'zip_file_name'. 
+            # run zip command according to the OS
+            if os.name == 'nt':
+                os.system(f"tar -a -c -f {zip_file_name} {output_dir}") # windows
+            else:
+                os.system(f"zip -r {zip_file_name} {output_dir}") # linux/mac
 
-        return send_file(zip_file_name, as_attachment=True)
-    
-    else:
-        return jsonify({'message': 'Failed to split the pdf file'}), 500
+            # remove the temporary folders (shi not working for deleting the file...)
+            @after_this_request
+            def remove_file(response):
+                try:
+                    shutil.rmtree(upload_dir)
+                    shutil.rmtree(output_dir)
+                    os.remove(zip_file_name) # dont work...
+                except Exception as e:
+                    print(f"An error occurred while removing things: {e}")
+                return response
+
+            return send_file(zip_file_name, as_attachment=True)
+        else:
+            raise Exception("Failed to split the pdf file. Number of pages don't match.")
+
+    except Exception as e:
+        return jsonify({'message': str(e)}), 500
 
 @application.route('/tmp', methods=['GET'])
 def single_text():

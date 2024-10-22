@@ -150,9 +150,9 @@ def split_pdf():
             @after_this_request
             def remove_file(response):
                 try:
-                    shutil.rmtree(upload_dir)
-                    shutil.rmtree(output_dir)
-                    os.remove(zip_file_name) # dont work...
+                    os.system(f"rm -rf {upload_dir}")
+                    os.system(f"rm -rf {output_dir}")
+                    # os.system(f"rm -rf {zip_file_name}")
                 except Exception as e:
                     print(f"An error occurred while removing things: {e}")
                 return response

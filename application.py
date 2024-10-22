@@ -44,13 +44,14 @@ def _split_pdf(file_path, part_size_mb, output_dir):
     for i, page in enumerate(pdf_reader.pages):
         page_size = page_sizes[i]
 
-        if page_size > part_size_bytes and i == 0:
-            current_writer.add_page(page)
+        # if page_size > part_size_bytes and len(current_writer.pages) == 0:
+        #     current_writer.add_page(page)
+        #     # write to file... and reset the current_writer
 
-        accumulated_size += page_size
+        accumulated_size += page_size # "simulate" adding the page to the current part
 
         if accumulated_size >= part_size_bytes:
-            # save current part
+            # adding the current page will exeed the size limit, then save the current part (WITHOUT the current page)
             base_filename = os.path.splitext(os.path.basename(file_path))[0] # get the file name without the extension (.pdf)
             output_filename = f"{base_filename}_part_{current_part}.pdf"
             output_path = os.path.join(output_dir, output_filename) # path to save the split pdf file (output/unique_id/filename_part_X.pdf)
@@ -58,7 +59,7 @@ def _split_pdf(file_path, part_size_mb, output_dir):
             part_length = len(current_writer.pages)
 
             with open(output_path, "wb") as output_file:
-                current_writer.write(output_file)
+                current_writer.write(output_file) # write to file
                 total_pages_sum_after += part_length
 
             print(f"Saved part #{current_part} with [{part_length}] pages")

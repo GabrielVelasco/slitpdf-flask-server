@@ -1,13 +1,13 @@
+import io
+import os
+import uuid
 from flask import Flask, request, jsonify, send_file, after_this_request
 from flask_cors import CORS
 from PyPDF2 import PdfReader, PdfWriter
 from werkzeug.utils import secure_filename
-import shutil
-import io
-import os
-import uuid
 
-application = Flask(__name__) # create the flask app instance (instance name must be 'application' for deploying to beanstalk)
+# create the flask app instance (instance name must be 'application' for deploying to beanstalk)
+application = Flask(__name__) 
 
 CORS(application)
 
@@ -26,7 +26,19 @@ def get_page_sizes(pdf_reader):
 
 def _split_pdf(file_path, part_size_mb, output_dir):
     """Split a PDF file into parts of a given size. 
-    Save parts in the 'output_folder'.
+    Save parts in the 'output_dir'.
+
+    In case a single page is larger than the part size (I think it's going to be rare to happen, specially with +5MB limit),
+    it will be saved as a single part. May ask the user yes/no to split it in half or something like that... to complex for now
+
+    Args:
+        file_path (str): path to the pdf file to split
+        part_size_mb (int): size of each part in MB
+        output_dir (str): path to the folder to save the split pdf files
+
+    Returns:
+        bool: True if the pdf was split successfully, False otherwise   
+
     """
 
     # create a PdfReader object
@@ -43,12 +55,11 @@ def _split_pdf(file_path, part_size_mb, output_dir):
 
     for i, page in enumerate(pdf_reader.pages):
         page_size = page_sizes[i]
-
-        # if page_size > part_size_bytes and len(current_writer.pages) == 0:
-        #     current_writer.add_page(page)
-        #     # write to file... and reset the current_writer
-
         accumulated_size += page_size # "simulate" adding the page to the current part
+
+        if i == 0: # very first page must be added (even if it's larger than the part size)
+            current_writer.add_page(page)
+            continue
 
         if accumulated_size >= part_size_bytes:
             # adding the current page will exeed the size limit, then save the current part (WITHOUT the current page)
@@ -66,14 +77,12 @@ def _split_pdf(file_path, part_size_mb, output_dir):
 
             # Start a new part
             current_part += 1
-
             current_writer = PdfWriter()
             current_writer.add_page(page)
-
             accumulated_size = page_size
 
         else:
-            current_writer.add_page(page)
+            current_writer.add_page(page) # add page for real
 
     # save last part...
     if len(current_writer.pages) > 0:
@@ -92,10 +101,7 @@ def _split_pdf(file_path, part_size_mb, output_dir):
     print(f"PDF split into {current_part} parts.")
     print(f"Original file contains {total_pages} pages. Sum of pages after split: {total_pages_sum_after}")
 
-    if total_pages == total_pages_sum_after:
-        return True
-    else:
-        return False
+    return total_pages == total_pages_sum_after
 
 # Split pdf end point
 @application.route('/api/split', methods=['POST'])

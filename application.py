@@ -161,6 +161,7 @@ def split_pdf():
                     os.system(f"rm -rf {upload_dir}")
                     os.system(f"rm -rf {output_dir}")
                     os.system(f"rm -rf *.zip")
+                    os.system(f"ls")
                 except Exception as e:
                     print(f"An error occurred while removing things: {e}")
                 return response

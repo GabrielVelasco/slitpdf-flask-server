@@ -157,9 +157,10 @@ def split_pdf():
             @after_this_request
             def remove_file(response):
                 try:
+                    print('Removing temporary files...')
                     os.system(f"rm -rf {upload_dir}")
                     os.system(f"rm -rf {output_dir}")
-                    # os.system(f"rm -rf {zip_file_name}")
+                    os.system(f"rm -rf *.zip")
                 except Exception as e:
                     print(f"An error occurred while removing things: {e}")
                 return response

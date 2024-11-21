@@ -103,7 +103,8 @@ def _split_pdf(file_path, part_size_mb, output_dir):
 
     return total_pages == total_pages_sum_after
 
-# Split pdf end point
+## API routes (endpoints)
+
 @application.route('/api/split', methods=['POST'])
 def split_pdf():
     """Get 'pdf_file' and'max_size' from the request and split the pdf file"""
@@ -181,6 +182,8 @@ def single_text():
     }
 
     return jsonify(res)
+
+## Run the app...
 
 if __name__ == '__main__':
     application.run(debug=True)

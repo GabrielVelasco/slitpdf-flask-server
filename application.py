@@ -183,6 +183,10 @@ def single_text():
 
     return jsonify(res)
 
+@application.route('/download/<file_name>', methods=['GET'])
+def download_file(file_name):
+    return send_file(file_name, as_attachment=True)
+
 ## Run the app...
 
 if __name__ == '__main__':
